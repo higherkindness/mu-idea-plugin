@@ -1,5 +1,5 @@
 <idea-plugin>
-    <id>higherkindness.mu.mu-idea</id>
+    <id>io.higherkindness.mu-idea</id>
     <name>Mu IDEA</name>
     <version>0.0.1</version>
     <vendor url="https://github.com/higherkindness/mu-idea-plugin">Higherkindness</vendor>

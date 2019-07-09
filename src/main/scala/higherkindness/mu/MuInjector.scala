@@ -17,24 +17,52 @@
 package higherkindness.mu
 
 import com.intellij.openapi.diagnostic.Logger
-import org.jetbrains.plugins.scala.lang.psi.api.toplevel.typedef.{ScClass, ScTypeDefinition}
+import org.jetbrains.plugins.scala.lang.psi.api.toplevel.typedef.{ScObject, ScTrait, ScTypeDefinition}
 import org.jetbrains.plugins.scala.lang.psi.impl.toplevel.typedef.SyntheticMembersInjector
 
-final class MuInjector extends SyntheticMembersInjector {
+object MuInjector {
   private val Log = Logger.getInstance(classOf[MuInjector])
 
-  override def injectInners(source: ScTypeDefinition): Seq[String] = {
-    source.extendsBlock.members.flatMap {
-      case c: ScClass if c.annotations.map(_.getText).contains("service") =>
-        Log.info(s"Checking ${c.getQualifiedName}")
-        val companion =
-          s"""
-             |object ${c.name} {
-             |  def bindService[F[_]](implicit CE: _root_.cats.effect.ConcurrentEffect[F], algebra: ${c.name}[F]): F[_root_.io.grpc.ServerServiceDefinition]
-             |}
-           """.stripMargin
+  private val ServiceAnnotation = "service"
 
-        Seq(companion)
+  private val Dummy: String = "_root_.scala.Predef.???"
+  private def CE(effect: String): String = s"CE: _root_.cats.effect.ConcurrentEffect[$effect]"
+  private def algebra(clazz: String, effect: String): String = s"algebra: $clazz[$effect]"
+  private def SvcDef(effect: String): String = s"$effect[_root_.io.grpc.ServerServiceDefinition]"
+
+  private def hasServiceAnnotation(source: ScTypeDefinition): Boolean = {
+    source match {
+      case t: ScTrait => t.annotations.exists(_.getText.contains(ServiceAnnotation))
+      case _ => false
+    }
+  }
+}
+
+final class MuInjector extends SyntheticMembersInjector {
+  import MuInjector._
+
+  override def needsCompanionObject(source: ScTypeDefinition): Boolean =
+    hasServiceAnnotation(source)
+
+  override def injectFunctions(source: ScTypeDefinition): Seq[String] = {
+    source match {
+      case obj: ScObject =>
+        obj.fakeCompanionClassOrCompanionClass match {
+          case clazz: ScTypeDefinition if hasServiceAnnotation(clazz) => {
+            Log.info(s"Injecting bindService into ${clazz.getName}")
+
+            // TODO retrieve effects from clazz.typeParameters?
+            val effect = "F"
+
+            val companion =
+              s"""|def bindService[$effect[_]](implicit ${CE(effect)},
+                  |${algebra(clazz.getName, effect)}):
+                  |${SvcDef(effect)} = $Dummy""".stripMargin
+            List(companion)
+          }
+          case _ => Nil
+        }
+      case _ => Nil
     }
   }
 
