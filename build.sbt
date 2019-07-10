@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-lazy val Scalatest = "org.scalatest" %% "scalatest" % "3.0.8"
-
 lazy val commonSettings = Def.settings(
   scalaVersion := "2.12.8"
 )
@@ -39,12 +37,8 @@ lazy val muIdeaPlugin: Project = project
   .settings(commonSettings)
   .settings(ideaSettings)
   .settings(packagingSettings)
-  .settings(
-    name := "mu-idea",
-    libraryDependencies ++= Seq(Scalatest % Test)
-  )
+  .settings(name := "mu-idea", scalafmtOnCompile := true)
   .enablePlugins(SbtIdeaPlugin)
 
 lazy val ideaRunner: Project =
   createRunnerProject(muIdeaPlugin, "idea-runner")
-  
