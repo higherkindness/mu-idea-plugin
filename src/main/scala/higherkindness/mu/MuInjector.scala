@@ -41,6 +41,7 @@ object MuInjector {
   private val UsePlainText: String = "_root_.higherkindness.mu.rpc.channel.UsePlaintext()"
   private def ResourceForService(serviceName: String, effect: String): String =
     s"_root_.cats.effect.Resource[$effect, $serviceName[$effect]]"
+  private val ManagedChannel: String = "_root_.io.grpc.ManagedChannel"
 
   // TODO conditional monix implicit required
   private def buildBindService(serviceName: String, effect: String): String =
@@ -71,11 +72,26 @@ object MuInjector {
         |)(implicit ${CE(effect)}, ${CS(effect)}): ${ResourceForService(serviceName, effect)} =
         | $Dummy""".stripMargin
 
+  private def buildClientFromChannel(serviceName: String, effect: String): String =
+    s"""|def clientFromChannel[$effect[_]](
+        |  channel: $effect[$ManagedChannel],
+        |  options: $DefaultGCall
+        |)(implicit ${CE(effect)}, ${CS(effect)}): ${ResourceForService(serviceName, effect)} =
+        | $Dummy""".stripMargin
+
   private def hasServiceAnnotation(source: ScTypeDefinition): Boolean = {
     source match {
       case t: ScTrait => t.annotations.exists(_.getText.contains(ServiceAnnotation))
       case _ => false
     }
+  }
+
+  private def injector(scObject: ScObject)(generator: ScTypeDefinition => List[String]): List[String] = {
+    case obj: ScObject =>
+      obj.fakeCompanionClassOrCompanionClass match {
+        case clazz: ScTypeDefinition if hasServiceAnnotation(clazz) => generator(clazz)
+        case _ => Nil
+      }
   }
 }
 
@@ -86,41 +102,28 @@ final class MuInjector extends SyntheticMembersInjector {
     hasServiceAnnotation(source)
 
   override def injectInners(source: ScTypeDefinition): Seq[String] = source match {
-    case obj: ScObject =>
-      obj.fakeCompanionClassOrCompanionClass match {
-        case clazz: ScTypeDefinition if hasServiceAnnotation(clazz) => {
-          Log.info(s"Injecting Mu inner definitions into ${clazz.getName}")
+    case obj: ScObject => injector(obj) { clazz =>
+      // TODO retrieve effects from clazz.typeParameters?
+      val effect = "F"
+      val serviceName = clazz.getName
 
-          // TODO retrieve effects from clazz.typeParameters?
-          val effect = "F"
-          val serviceName = clazz.getName
-
-          val clientClass = buildClientClass(serviceName, effect, clazz.functions)
-
-          List(clientClass)
-        }
-        case _ => Nil
-      }
+      List(buildClientClass(serviceName, effect, clazz.functions))
+    }
     case _ => Nil
   }
 
   override def injectFunctions(source: ScTypeDefinition): Seq[String] = source match {
-    case obj: ScObject =>
-      obj.fakeCompanionClassOrCompanionClass match {
-        case clazz: ScTypeDefinition if hasServiceAnnotation(clazz) => {
-          Log.info(s"Injecting Mu function definitions into ${clazz.getName}")
+    case obj: ScObject => injector(obj) { clazz =>
+      // TODO retrieve effects from clazz.typeParameters?
+      val effect = "F"
+      val serviceName = clazz.getName
 
-          // TODO retrieve effects from clazz.typeParameters?
-          val effect = "F"
-          val serviceName = clazz.getName
+      val bind = buildBindService(serviceName, effect)
+      val clientConstructor = buildClientSmartConstructor(serviceName, effect)
+      val clientFromChannel = buildClientFromChannel(serviceName, effect)
 
-          val bind = buildBindService(serviceName, effect)
-          val clientConstructor = buildClientSmartConstructor(serviceName, effect)
-
-          List(bind, clientConstructor)
-        }
-        case _ => Nil
-      }
+      List(bind, clientConstructor, clientFromChannel)
+    }
     case _ => Nil
   }
 
