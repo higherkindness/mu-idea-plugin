@@ -18,7 +18,11 @@ package higherkindness.mu
 
 import com.intellij.openapi.diagnostic.Logger
 import org.jetbrains.plugins.scala.lang.psi.api.statements.ScFunction
-import org.jetbrains.plugins.scala.lang.psi.api.toplevel.typedef.{ScObject, ScTrait, ScTypeDefinition}
+import org.jetbrains.plugins.scala.lang.psi.api.toplevel.typedef.{
+  ScObject,
+  ScTrait,
+  ScTypeDefinition
+}
 import org.jetbrains.plugins.scala.lang.psi.impl.toplevel.typedef.SyntheticMembersInjector
 
 object MuInjector {
@@ -28,17 +32,25 @@ object MuInjector {
 
   private val Dummy: String = "_root_.scala.Predef.???"
   private val Client: String = "Client"
-  private def CE(effect: String): String = s"CE: _root_.cats.effect.ConcurrentEffect[$effect]"
-  private def CS(effect: String): String = s"CS: _root_.cats.effect.ContextShift[$effect]"
-  private def algebra(serviceName: String, effect: String): String = s"algebra: $serviceName[$effect]"
-  private def SvcDef(effect: String): String = s"$effect[_root_.io.grpc.ServerServiceDefinition]"
-  private val DefaultGCall: String = "_root_.io.grpc.CallOptions = _root_.io.grpc.CallOptions.DEFAULT"
+  private def CE(effect: String): String =
+    s"CE: _root_.cats.effect.ConcurrentEffect[$effect]"
+  private def CS(effect: String): String =
+    s"CS: _root_.cats.effect.ContextShift[$effect]"
+  private def algebra(serviceName: String, effect: String): String =
+    s"algebra: $serviceName[$effect]"
+  private def SvcDef(effect: String): String =
+    s"$effect[_root_.io.grpc.ServerServiceDefinition]"
+  private val DefaultGCall: String =
+    "_root_.io.grpc.CallOptions = _root_.io.grpc.CallOptions.DEFAULT"
   private val Channel: String = "_root_.io.grpc.Channel"
   private val ChannelFor: String = "_root_.higherkindness.mu.rpc.ChannelFor"
-  private val ManagedChannelConf: String = "_root_.higherkindness.mu.rpc.channel.ManagedChannelConfig"
-  private def ClientStub(effect: String): String = s"_root_.io.grpc.stub.AbstractStub[$Client[$effect]](channel, options)"
+  private val ManagedChannelConf: String =
+    "_root_.higherkindness.mu.rpc.channel.ManagedChannelConfig"
+  private def ClientStub(effect: String): String =
+    s"_root_.io.grpc.stub.AbstractStub[$Client[$effect]](channel, options)"
   private val GCallOptions: String = "_root_.io.grpc.CallOptions"
-  private val UsePlainText: String = "_root_.higherkindness.mu.rpc.channel.UsePlaintext()"
+  private val UsePlainText: String =
+    "_root_.higherkindness.mu.rpc.channel.UsePlaintext()"
   private def ResourceForService(serviceName: String, effect: String): String =
     s"_root_.cats.effect.Resource[$effect, $serviceName[$effect]]"
   private val ManagedChannel: String = "_root_.io.grpc.ManagedChannel"
@@ -49,7 +61,11 @@ object MuInjector {
         |${algebra(serviceName, effect)}):
         |${SvcDef(effect)} = $Dummy""".stripMargin
 
-  private def buildClientClass(serviceName: String, effect: String, services: Seq[ScFunction]): String =
+  private def buildClientClass(
+      serviceName: String,
+      effect: String,
+      services: Seq[ScFunction]
+  ): String =
     s"""|class $Client[$effect[_]](
         |  channel: $Channel,
         |  options: $DefaultGCall
@@ -59,39 +75,58 @@ object MuInjector {
         |    options: $GCallOptions
         |  ): $Client[$effect] = new $Client[$effect](channel, options)
         |
-        |  ${services.map(f => s"override ${f.getText} = $Dummy").mkString("\n")}
+        |  ${services
+         .map(f => s"override ${f.getText} = $Dummy")
+         .mkString(System.lineSeparator)}
         |}""".stripMargin
 
-  private def buildClientSmartConstructor(serviceName: String, effect: String): String =
+  private def buildClientSmartConstructor(
+      serviceName: String,
+      effect: String
+  ): String =
     s"""|def client[$effect[_]](
         |  channelFor: $ChannelFor,
         |  channelConfigList: List[$ManagedChannelConf] = List(
         |    $UsePlainText
         |  ),
         |  options: $DefaultGCall
-        |)(implicit ${CE(effect)}, ${CS(effect)}): ${ResourceForService(serviceName, effect)} =
+        |)(implicit ${CE(effect)}, ${CS(effect)}): ${ResourceForService(
+         serviceName,
+         effect
+       )} =
         | $Dummy""".stripMargin
 
-  private def buildClientFromChannel(serviceName: String, effect: String): String =
+  private def buildClientFromChannel(
+      serviceName: String,
+      effect: String
+  ): String =
     s"""|def clientFromChannel[$effect[_]](
         |  channel: $effect[$ManagedChannel],
         |  options: $DefaultGCall
-        |)(implicit ${CE(effect)}, ${CS(effect)}): ${ResourceForService(serviceName, effect)} =
+        |)(implicit ${CE(effect)}, ${CS(effect)}): ${ResourceForService(
+         serviceName,
+         effect
+       )} =
         | $Dummy""".stripMargin
 
   private def hasServiceAnnotation(source: ScTypeDefinition): Boolean = {
     source match {
-      case t: ScTrait => t.annotations.exists(_.getText.contains(ServiceAnnotation))
+      case t: ScTrait =>
+        t.annotations.exists(_.getText.contains(ServiceAnnotation))
       case _ => false
     }
   }
 
-  private def injector(scObject: ScObject)(generator: ScTypeDefinition => List[String]): List[String] = {
+  private def injector(
+      source: ScTypeDefinition
+  )(generator: ScTypeDefinition => List[String]): List[String] = source match {
     case obj: ScObject =>
       obj.fakeCompanionClassOrCompanionClass match {
-        case clazz: ScTypeDefinition if hasServiceAnnotation(clazz) => generator(clazz)
+        case clazz: ScTypeDefinition if hasServiceAnnotation(clazz) =>
+          generator(clazz)
         case _ => Nil
       }
+    case _ => Nil
   }
 }
 
@@ -101,19 +136,17 @@ final class MuInjector extends SyntheticMembersInjector {
   override def needsCompanionObject(source: ScTypeDefinition): Boolean =
     hasServiceAnnotation(source)
 
-  override def injectInners(source: ScTypeDefinition): Seq[String] = source match {
-    case obj: ScObject => injector(obj) { clazz =>
+  override def injectInners(source: ScTypeDefinition): Seq[String] =
+    injector(source) { clazz =>
       // TODO retrieve effects from clazz.typeParameters?
       val effect = "F"
       val serviceName = clazz.getName
 
       List(buildClientClass(serviceName, effect, clazz.functions))
     }
-    case _ => Nil
-  }
 
-  override def injectFunctions(source: ScTypeDefinition): Seq[String] = source match {
-    case obj: ScObject => injector(obj) { clazz =>
+  override def injectFunctions(source: ScTypeDefinition): Seq[String] =
+    injector(source) { clazz =>
       // TODO retrieve effects from clazz.typeParameters?
       val effect = "F"
       val serviceName = clazz.getName
@@ -124,7 +157,4 @@ final class MuInjector extends SyntheticMembersInjector {
 
       List(bind, clientConstructor, clientFromChannel)
     }
-    case _ => Nil
-  }
-
 }
